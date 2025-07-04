@@ -1,265 +1,429 @@
-## Лицензия. Этот проект распространяется под лицензией GPLv3. Подробности можно найти в файле COPYING
+## Лицензия. Этот проект распространяется под лицензией GPLv3.
+## Подробности можно найти в файле COPYING
 
-
-import tkinter as tk
-from tkinter import ttk
-from tkinter import messagebox
+import sys
+import os
+import re
 import sqlite3
 import xml.etree.ElementTree as ET
-import re
 from datetime import datetime
-from tkinter import PhotoImage
 
-import re
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QLineEdit, QPushButton, QListWidget, QListWidgetItem,
+    QMessageBox, QCheckBox, QScrollArea, QDialog, QCalendarWidget, QAbstractItemView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QMenu
+)
+from PyQt5.QtCore import Qt, QTimer, QDate
+from PyQt5.QtGui import QIcon
 
-import tkinter as tk
-from tkinter import ttk
+PROGRAM_MAPPING = {
+    1: "Оказание первой помощи пострадавшим",
+    2: "Использование (применение) средств индивидуальной защиты",
+    3: "Общие вопросы охраны труда и функционирования системы управления охраной труда",
+    4: "Безопасные методы и приемы выполнения работ при воздействии вредных и (или) опасных производственных факторов, источников опасности, идентифицированных в рамках специальной оценки условий труда и оценки профессиональных рисков",
+    6: "Безопасные методы и приемы выполнения земляных работ",
+    7: "Безопасные методы и приемы выполнения ремонтных, монтажных и демонтажных работ зданий и сооружений",
+    8: "Безопасные методы и приемы выполнения работ при размещении, монтаже, техническом обслуживании и ремонте технологического оборудования (включая технологическое оборудование)",
+    9: "Безопасные методы и приемы выполнения работ на высоте",
+    10: "Безопасные методы и приемы выполнения пожароопасных работ",
+    11: "Безопасные методы и приемы выполнения работ в ограниченных и замкнутых пространствах (ОЗП)",
+    12: "Безопасные методы и приемы выполнения строительных работ, в том числе: - окрасочные работы - электросварочные и газосварочные работы",
+    13: "Безопасные методы и приемы выполнения работ, связанные с опасностью воздействия сильнодействующих и ядовитых веществ",
+    14: "Безопасные методы и приемы выполнения газоопасных работ",
+    15: "Безопасные методы и приемы выполнения огневых работ",
+    16: "Безопасные методы и приемы выполнения работ, связанные с эксплуатацией подъемных сооружений",
+    17: "Безопасные методы и приемы выполнения работ, связанные с эксплуатацией тепловых энергоустановок",
+    18: "Безопасные методы и приемы выполнения работ в электроустановках",
+    19: "Безопасные методы и приемы выполнения работ, связанные с эксплуатацией сосудов, работающих под избыточным давлением",
+    20: "Безопасные методы и приемы обращения с животными",
+    21: "Безопасные методы и приемы при выполнении водолазных работ",
+    22: "Безопасные методы и приемы работ по поиску, идентификации, обезвреживанию и уничтожению взрывоопасных предметов",
+    23: "Безопасные методы и приемы работ в непосредственной близости от полотна или проезжей части эксплуатируемых автомобильных и железных дорог",
+    24: "Безопасные методы и приемы работ, на участках с патогенным заражением почвы",
+    25: "Безопасные методы и приемы работ по валке леса в особо опасных условиях",
+    26: "Безопасные методы и приемы работ по перемещению тяжеловесных и крупногабаритных грузов при отсутствии машин соответствующей грузоподъемности и разборке покосившихся и опасных (неправильно уложенных) штабелей круглых лесоматериалов",
+    27: "Безопасные методы и приемы работ с радиоактивными веществами и источниками ионизирующих излучений",
+    28: "Безопасные методы и приемы работ с ручным инструментом, в том числе с пиротехническим",
+    29: "Безопасные методы и приемы работ в театрах"
+}
 
-def show_license():
-    """Отображает текст лицензии из файла COPYING в новом окне с возможностью прокрутки."""
-    try:
-        with open("COPYING", "r", encoding="utf-8") as file:
-            license_text = file.read()
-
-        license_window = tk.Toplevel(root)
-        license_window.title("Лицензия")
-
-        # Создаем текстовый виджет
-        text_widget = tk.Text(license_window, wrap=tk.WORD)
-        text_widget.insert(tk.END, license_text)
-        text_widget.config(state=tk.DISABLED)  # Запрещаем редактирование
-
-        # Создаем полосу прокрутки
-        scrollbar = tk.Scrollbar(license_window, command=text_widget.yview)
-        text_widget.config(yscrollcommand=scrollbar.set)
-
-        # Размещаем виджеты
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-    except FileNotFoundError:
-        show_message("Файл лицензии COPYING не найден!", "error")
-    except Exception as e:
-        show_message(f"Ошибка при чтении файла лицензии: {e}", "error")
-
+program_mapping = PROGRAM_MAPPING
 
 
 def validate_snils(snils):
-    """
-    Проверяет корректность СНИЛС.
-    :param snils: СНИЛС в формате 'XXX-XXX-XXX YY' или 'XXXXXXXXXYY'.
-    :return: True, если СНИЛС корректен, иначе False.
-    """
-    # Проверка формата
     if not re.match(r"^\d{3}-\d{3}-\d{3} \d{2}$", snils) and not re.match(r"^\d{11}$", snils):
         return False
 
-    # Убираем все нецифровые символы
-    snils_clean = re.sub(r"[-\s]", "", snils)
-
-    # Проверка длины
+    snils_clean = re.sub(r"[^\d]", "", snils)
     if len(snils_clean) != 11:
         return False
 
-    # Разделяем основную часть и контрольную сумму
     main_part = snils_clean[:9]
     control_sum = int(snils_clean[-2:])
 
-    # Вычисляем контрольную сумму
     total = 0
     for i, digit in enumerate(main_part, start=1):
         total += int(digit) * (10 - i)
 
-    # Проверка контрольной суммы
     if total < 100:
         return total == control_sum
     elif total == 100 or total == 101:
         return control_sum == 0
     else:
-        return (total % 101) == control_sum
+        remainder = total % 101
+        if remainder == 100:
+            return control_sum == 0
+        else:
+            return remainder == control_sum
 
 
 def validate_date(date_str):
-    """Проверяет корректность формата даты."""
     try:
         datetime.strptime(date_str, '%d.%m.%Y')
         return True
     except ValueError:
         return False
+
+
+class InstructionDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Инструкция")
+        self.setMinimumSize(1200, 400)
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.text_label = QLabel()
+        self.text_label.setWordWrap(True)
+        self.text_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.text_label)
+        layout.addWidget(scroll)
+
+        try:
+            with open("manual.txt", "r", encoding="utf-8") as file:
+                license_text = file.read()
+            self.text_label.setText(license_text)
+        except FileNotFoundError:
+            self.text_label.setText("Файл инструкции не найден!")
+        except Exception as e:
+            self.text_label.setText(f"Ошибка при чтении файла инструкции: {e}")
+
+
+class PositionSelectorDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Выберите должность")
+        self.setMinimumSize(600, 400)
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.list_widget = QListWidget()
+        layout.addWidget(self.list_widget)
+
+        try:
+            with open("positions.txt", "r", encoding="utf-8") as file:
+                positions = [pos.strip() for pos in file.readlines()]
+            for pos in positions:
+                if pos:
+                    self.list_widget.addItem(pos)
+        except FileNotFoundError:
+            QMessageBox.critical(self, "Ошибка", "Файл positions.txt не найден.")
+            self.reject()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+            self.reject()
+
+        self.list_widget.itemDoubleClicked.connect(self.item_selected)
+
+        self.selected_position = None
+
+    def item_selected(self, item):
+        self.selected_position = item.text()
+        self.accept()
+
+    @staticmethod
+    def get_position(parent=None):
+        dialog = PositionSelectorDialog(parent)
+        result = dialog.exec_()
+        if result == QDialog.Accepted:
+            return dialog.selected_position
+        return None
+
+
+class CalendarDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Выберите дату")
+        self.setMinimumSize(400, 300)
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.calendar = QCalendarWidget()
+        self.calendar.setGridVisible(True)
+        self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        self.calendar.activated.connect(self.accept)  # Добавляем обработку двойного клика
         
+        layout.addWidget(self.calendar)
 
-def show_position_options(event):
-    """Отображает список доступных должностей при нажатии на кнопку."""
-    try:
-        with open("positions.txt", "r") as file:
-            positions = [pos.strip() for pos in file.readlines()]
+        button_box = QHBoxLayout()
+        layout.addLayout(button_box)
 
-        position_window = tk.Toplevel(root)
-        position_window.title("Выберите должность")
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(self.accept)
+        button_box.addWidget(ok_btn)
 
-        position_listbox = tk.Listbox(position_window, width=60, height=20)
-        position_listbox.pack(padx=5, pady=10, fill="both", expand=True)
+        cancel_btn = QPushButton("Отмена")
+        cancel_btn.clicked.connect(self.reject)
+        button_box.addWidget(cancel_btn)
 
-        for position in positions:
-            position_listbox.insert(tk.END, position)
+    def get_selected_date(self):
+        return self.calendar.selectedDate()
 
-        position_listbox.bind("<<ListboxSelect>>", lambda event: select_position(position_listbox))
-        position_window.mainloop()
-    except FileNotFoundError:
-        show_message("Файл positions.txt не найден.", "error")
-    except Exception as e:
-        show_message(f"Ошибка: {e}", "error")
 
-def select_position(listbox):
-    """Заполняет поле position_entry выбранной должностью."""
-    selected_index = listbox.curselection()
-    if selected_index:
-        selected_position = listbox.get(selected_index)
-        position_entry.delete(0, tk.END)
-        position_entry.insert(0, selected_position)
-        listbox.master.destroy()
-        
-#Функция для получения СНИЛС из базы данных
+class ProtocolDetailsDialog(QDialog):
+    def __init__(self, conn, record_id, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Подробная информация")
+        self.setMinimumSize(600, 700)
+        self.conn = conn
+        self.record_id = record_id
+        self.entries = []
+        self.column_names = []
+        self.initial_values = None
+
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        form_layout = QGridLayout()
+        layout.addLayout(form_layout)
+
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            QMessageBox.critical(self, "Ошибка", "Запись не найдена в базе данных.")
+            self.reject()
+            return
+
+        self.initial_values = row
+        self.column_names = [desc[0] for desc in cursor.description]
+
+        for i, value in enumerate(row):
+            label = QLabel(self.column_names[i])
+            form_layout.addWidget(label, i, 0)
+
+            line_edit = QLineEdit()
+            line_edit.setText(str(value) if value is not None else "")
+            form_layout.addWidget(line_edit, i, 1)
+            self.entries.append(line_edit)
+
+            # Ввод Enter переключает на следующее поле
+            def make_on_return(idx):
+                def on_return():
+                    if idx + 1 < len(self.entries):
+                        self.entries[idx + 1].setFocus()
+                return on_return
+
+            line_edit.returnPressed.connect(make_on_return(i))
+
+        self.save_button = QPushButton("Сохранить изменения")
+        self.save_button.clicked.connect(self.save_changes)
+        layout.addWidget(self.save_button)
+
+    def save_changes(self):
+        updated_values = []
+        set_clause = []
+
+        current_values = [e.text() for e in self.entries]
+
+        for i, value in enumerate(current_values):
+            if value != (self.initial_values[i] if self.initial_values[i] is not None else ""):
+                set_clause.append(f"{self.column_names[i]}=?")
+                updated_values.append(value)
+
+        if not set_clause:
+            QMessageBox.information(self, "Информация", "Нет изменений для сохранения.")
+            return
+
+        updated_values.append(self.record_id)
+        query = f"UPDATE users SET {', '.join(set_clause)} WHERE id=?"
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(query, updated_values)
+            self.conn.commit()
+            QMessageBox.information(self, "Успех", "Изменения успешно сохранены!")
+            self.accept()  # Можно закрывать диалог
+        except sqlite3.Error as e:
+            QMessageBox.critical(self, "Ошибка базы данных", str(e))
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
+
+
+class ProtocolInfoDialog(QDialog):
+    def __init__(self, conn, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Информация о протоколах")
+        self.setMinimumSize(1500, 800)
+        self.conn = conn
+
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels(["Протокол", "Фамилия", "Имя", "Отчество", "Дата проверки", "Учебная программа", "ID"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSortingEnabled(True)
+
+        layout.addWidget(self.table)
+
+        buttons_layout = QHBoxLayout()
+        layout.addLayout(buttons_layout)
+
+        self.refresh_btn = QPushButton("Обновить данные")
+        self.refresh_btn.clicked.connect(self.load_data)
+        buttons_layout.addWidget(self.refresh_btn)
+
+        self.xml_btn = QPushButton("Сформировать XML")
+        self.xml_btn.clicked.connect(self.generate_xml_for_selected)
+        buttons_layout.addWidget(self.xml_btn)
+
+        self.delete_btn = QPushButton("Удалить запись")
+        self.delete_btn.clicked.connect(self.delete_selected_entry)
+        buttons_layout.addWidget(self.delete_btn)
+
+        self.details_btn = QPushButton("Просмотр и изменение")
+        self.details_btn.clicked.connect(self.show_details)
+        buttons_layout.addWidget(self.details_btn)
+
+        self.status_label = QLabel()
+        layout.addWidget(self.status_label)
+
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.open_context_menu)
+
+        self.load_data()
+
+    def load_data(self):
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(0)
+
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT protocol_number, surname, name, patronymic, exam_date, learn_program_id, id FROM users ORDER BY protocol_number
+        """)
+        rows = cursor.fetchall()
+
+        for row_data in rows:
+            row_idx = self.table.rowCount()
+            self.table.insertRow(row_idx)
+            for col_idx in range(7):
+                if col_idx == 5:  # Учебная программа по id
+                    program_name = program_mapping.get(row_data[col_idx], "Неизвестная программа")
+                    item = QTableWidgetItem(program_name)
+                else:
+                    item = QTableWidgetItem(str(row_data[col_idx]) if row_data[col_idx] is not None else "")
+                self.table.setItem(row_idx, col_idx, item)
+
+        self.table.setColumnHidden(6, True)  # Скрыть столбец ID
+        self.status_label.setText(f"Всего записей: {self.table.rowCount()}")
+        self.table.setSortingEnabled(True)
+
+    def get_selected_row_id(self):
+        selected_items = self.table.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Внимание", "Выберите запись.")
+            return None
+        # ID находится в скрытом столбце 6
+        return int(self.table.item(selected_items[0].row(), 6).text())
+
+    def generate_xml_for_selected(self):
+        record_id = self.get_selected_row_id()
+        if record_id is None:
+            return
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT protocol_number FROM users WHERE id=?", (record_id,))
+        row = cursor.fetchone()
+        if not row or not row[0]:
+            QMessageBox.warning(self, "Ошибка", "Протокол у выбранной записи отсутствует.")
+            return
+        create_xml(self.conn, row[0])
+        QMessageBox.information(self, "Успех", "XML-файл успешно создан.")
+
+    def delete_selected_entry(self):
+        record_id = self.get_selected_row_id()
+        if record_id is None:
+            return
+        reply = QMessageBox.question(
+            self, "Подтверждение", f"Вы уверены, что хотите удалить запись с ID {record_id}?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute("DELETE FROM users WHERE id = ?", (record_id,))
+                self.conn.commit()
+                QMessageBox.information(self, "Успех", "Запись успешно удалена!")
+                self.load_data()
+            except sqlite3.Error as e:
+                QMessageBox.critical(self, "Ошибка базы данных", str(e))
+
+    def show_details(self):
+        record_id = self.get_selected_row_id()
+        if record_id is None:
+            return
+        detail_dialog = ProtocolDetailsDialog(self.conn, record_id, self)
+        detail_dialog.exec_()
+        self.load_data()
+
+    def open_context_menu(self, position):
+        menu = QMenu()
+        menu.addAction("Сформировать XML", self.generate_xml_for_selected)
+        menu.addAction("Удалить запись", self.delete_selected_entry)
+        menu.addAction("Просмотр и изменение", self.show_details)
+        menu.exec_(self.table.viewport().mapToGlobal(position))
+
+
 def get_user_data_from_db(conn, surname, name, patronymic):
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT snils, position FROM users WHERE surname = ? AND name = ? AND patronymic = ?", (surname, name, patronymic))
         row = cursor.fetchone()
         if row:
-            return row[0], row[1]  # Возвращаем СНИЛС и профессию
+            return row[0], row[1]
         return None, None
     except sqlite3.Error as e:
-        show_message(f"Ошибка базы данных: {e}", "error")
+        QMessageBox.critical(None, "Ошибка базы данных", f"Ошибка: {e}")
         return None, None
 
-#Функция для предложения автоматического заполнения СНИЛС
-def suggest_autofill_data(conn, surname, name, patronymic):
+
+def suggest_autofill_data(parent, conn, surname, name, patronymic, snils_edit, position_edit):
     snils, position = get_user_data_from_db(conn, surname, name, patronymic)
     if snils or position:
-        response = messagebox.askyesno(
+        reply = QMessageBox.question(
+            parent,
             "Автозаполнение данных",
             f"Найдена запись с такой же фамилией, именем и отчеством.\n"
             f"СНИЛС: {snils}\n"
             f"Профессия: {position}\n\n"
-            "Заполнить поля СНИЛС и Профессия автоматически?"
+            "Заполнить поля СНИЛС и Профессия автоматически?",
+            QMessageBox.Yes | QMessageBox.No
         )
-        if response:
+        if reply == QMessageBox.Yes:
             if snils:
-                snils_entry.delete(0, tk.END)
-                snils_entry.insert(0, snils)
+                snils_edit.setText(snils)
             if position:
-                position_entry.delete(0, tk.END)
-                position_entry.insert(0, position)
+                position_edit.setText(position)
 
-def show_message(message, message_type="info"):
-    """Отображает сообщение в отдельном окне, которое закрывается через 2 секунды."""
-    top = tk.Toplevel(root)
-    top.title("Сообщение")
-    top.attributes('-topmost', True)   # Эта строка гарантирует, что окно всегда наверху.
-    
-    label = ttk.Label(top, text=message, wraplength=300)
-    label.pack(pady=20)
-    if message_type == "error":
-        label.config(foreground="red")
-    elif message_type == "success":
-        label.config(foreground="green")
-    top.transient(root)
-    top.grab_set()
-    top.after(900, top.destroy)      # Тут можно задать время показа сервисного окна
-    top.mainloop()
 
-def submit_data(conn):
-    """Отправляет данные в базу данных, проверяя заполненные поля и чекбокс."""
-    try:
-        surname = surname_entry.get()
-        name = name_entry.get()
-        patronymic = patronymic_entry.get()
-        snils = snils_entry.get()
-        isForeignSnils = 1 if isForeignSnils_var.get() else 0
-        foreignSnils = foreignSnils_entry.get()
-        citizenship = citizenship_entry.get()
-        position = position_entry.get()
-        org_inn = org_inn_entry.get()
-        org_title = org_title_entry.get()
-        employer_org_inn = employer_org_inn_entry.get()
-        employer_org_title = employer_org_title_entry.get()
-        selected_program_ids = [int(learn_program_listbox.get(i).split('.')[0]) for i in learn_program_listbox.curselection()]
-        is_passed = 1 if is_passed_var.get() else 0
-        protocol_number = protocol_number_entry.get()
-        exam_date = exam_date_entry.get()
-        now = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-
-        required_fields = [surname, name, snils, exam_date, protocol_number]
-        if not all(required_fields):
-            show_message("Все обязательные поля не заполнены.", "error")
-            return
-
-        if not validate_snils(snils):
-            show_message("Неверный СНИЛС.", "error")
-            return
-
-        if not validate_date(exam_date):
-            show_message("Неверный формат даты.", "error")
-            return
-
-        if '/' in protocol_number:
-            show_message("Номер протокола не должен содержать символа '/'.", "error")
-            return
-
-        if not selected_program_ids:
-            show_message("Выберите хотя бы одну учебную программу.", "error")
-            return
-
-        for program_id in selected_program_ids:
-            conn.execute(
-                '''
-                INSERT INTO users (
-                    surname, name, patronymic, snils, isForeignSnils, foreignSnils, citizenship,
-                    position, org_inn, org_title, employer_org_inn, employer_org_title,
-                    learn_program_id, is_passed, protocol_number, exam_date, entry_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    surname, name, patronymic, snils, isForeignSnils, foreignSnils, citizenship,
-                    position, org_inn, org_title, employer_org_inn, employer_org_title,
-                    program_id, is_passed, protocol_number, exam_date, now
-                )
-            )
-        conn.commit()
-        show_message("Данные успешно сохранены!", "success")
-
-    except sqlite3.Error as e:
-        show_message(f"Ошибка базы данных: {e}", "error")
-    except Exception as e:
-        show_message(f"Ошибка: {e}", "error")
-        
-def clear_all_entries():
-    """Очищает все поля ввода."""
-    surname_entry.delete(0, tk.END)
-    name_entry.delete(0, tk.END)
-    patronymic_entry.delete(0, tk.END)
-    snils_entry.delete(0, tk.END)
-    position_entry.delete(0, tk.END)
-    #org_inn_entry.delete(0, tk.END)
-    #org_title_entry.delete(0, tk.END)
-    #employer_org_inn_entry.delete(0, tk.END)
-    #employer_org_title_entry.delete(0, tk.END)                   Эти четыре строки можно добавть для того, чтобы стирались и поля организаций
-    learn_program_listbox.selection_clear(0, tk.END)
-    #is_passed_var.set(False)                                     Это можно добавить, чтобы при очистке снимался и чекбокс Сдано
-    protocol_number_entry.delete(0, tk.END)
-    exam_date_entry.delete(0, tk.END)
-    isForeignSnils_var.set(False)
-    foreignSnils_entry.delete(0, tk.END)
-    citizenship_entry.delete(0, tk.END)
-
-def clear_partial_entries():
-    """Очищает поля Фамилия, Имя, Отчество, СНИЛС."""
-    surname_entry.delete(0, tk.END)
-    name_entry.delete(0, tk.END)
-    patronymic_entry.delete(0, tk.END)
-    snils_entry.delete(0, tk.END)
-    
 def create_xml(conn, target_protocol_number=None):
-    """Создает XML-файл для указанного протокола или всех записей."""
     try:
         filename = f"{target_protocol_number or 'all'}_{datetime.now().strftime('%d%m%Y')}.xml"
         root = ET.Element("RegistrySet")
@@ -310,674 +474,434 @@ def create_xml(conn, target_protocol_number=None):
 
         tree = ET.ElementTree(root)
         tree.write(filename, encoding="utf-8", xml_declaration=True)
-        show_message(f"XML-файл '{filename}' успешно создан!", "success")
-
     except ValueError as e:
-        show_message(f"Ошибка: {e}", "error")
+        QMessageBox.critical(None, "Ошибка", str(e))
     except sqlite3.Error as e:
-        show_message(f"Ошибка базы данных: {e}", "error")
+        QMessageBox.critical(None, "Ошибка базы данных", str(e))
     except Exception as e:
-        show_message(f"Непредвиденная ошибка: {e}", "error")
-
-def create_xml_filtered(conn):
-    """Создает XML-файл для данных, соответствующих заданному номеру протокола."""
-    target_protocol_number = protocol_number_for_xml_entry.get()
-    if not target_protocol_number:
-        show_message("Введите номер протокола для создания XML.", "error")
-        return
-    create_xml(conn, target_protocol_number)
-
-def create_xml_all(conn):
-    """Создает XML-файл со всеми данными из базы данных."""
-    create_xml(conn)
-
-def create_database(conn):
-    """Создает базу данных (если не существует) и таблицу users."""
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                surname TEXT,
-                name TEXT,
-                patronymic TEXT,
-                snils TEXT,
-                isForeignSnils INTEGER,
-                foreignSnils TEXT,
-                citizenship TEXT,
-                position TEXT,
-                org_inn TEXT,
-                org_title TEXT,
-                employer_org_inn TEXT,
-                employer_org_title TEXT,
-                learn_program_id INTEGER,
-                is_passed INTEGER,
-                protocol_number TEXT,
-                exam_date TEXT,
-                entry_date TEXT
-            )
-            '''
-        )
-        conn.commit()
-    except sqlite3.Error as e:
-        show_message(f"Ошибка базы данных: {e}", "error")
-
-program_mapping = {
-    1: "Оказание первой помощи пострадавшим",
-    2: "Использование (применение) средств индивидуальной защиты",
-    3: "Общие вопросы охраны труда и функционирования системы управления охраной труда",
-    4: "Безопасные методы и приемы выполнения работ при воздействии вредных и (или) опасных производственных факторов, источников опасности, идентифицированных в рамках специальной оценки условий труда и оценки профессиональных рисков",
-    6: "Безопасные методы и приемы выполнения земляных работ",
-    7: "Безопасные методы и приемы выполнения ремонтных, монтажных и демонтажных работ зданий и сооружений",
-    8: "Безопасные методы и приемы выполнения работ при размещении, монтаже, техническом обслуживании и ремонте технологического оборудования (включая технологическое оборудование)",
-    9: "Безопасные методы и приемы выполнения работ на высоте",
-    10: "Безопасные методы и приемы выполнения пожароопасных работ",
-    11: "Безопасные методы и приемы выполнения работ в ограниченных и замкнутых пространствах (ОЗП)",
-    12: "Безопасные методы и приемы выполнения строительных работ, в том числе: - окрасочные работы - электросварочные и газосварочные работы",
-    13: "Безопасные методы и приемы выполнения работ, связанные с опасностью воздействия сильнодействующих и ядовитых веществ",
-    14: "Безопасные методы и приемы выполнения газоопасных работ",
-    15: "Безопасные методы и приемы выполнения огневых работ",
-    16: "Безопасные методы и приемы выполнения работ, связанные с эксплуатацией подъемных сооружений",
-    17: "Безопасные методы и приемы выполнения работ, связанные с эксплуатацией тепловых энергоустановок",
-    18: "Безопасные методы и приемы выполнения работ в электроустановках",
-    19: "Безопасные методы и приемы выполнения работ, связанные с эксплуатацией сосудов, работающих под избыточным давлением",
-    20: "Безопасные методы и приемы обращения с животными",
-    21: "Безопасные методы и приемы при выполнении водолазных работ",
-    22: "Безопасные методы и приемы работ по поиску, идентификации, обезвреживанию и уничтожению взрывоопасных предметов",
-    23: "Безопасные методы и приемы работ в непосредственной близости от полотна или проезжей части эксплуатируемых автомобильных и железных дорог",
-    24: "Безопасные методы и приемы работ, на участках с патогенным заражением почвы",
-    25: "Безопасные методы и приемы работ по валке леса в особо опасных условиях",
-    26: "Безопасные методы и приемы работ по перемещению тяжеловесных и крупногабаритных грузов при отсутствии машин соответствующей грузоподъемности и разборке покосившихся и опасных (неправильно уложенных) штабелей круглых лесоматериалов",
-    27: "Безопасные методы и приемы работ с радиоактивными веществами и источниками ионизирующих излучений",
-    28: "Безопасные методы и приемы работ с ручным инструментом, в том числе с пиротехническим",
-    29: "Безопасные методы и приемы работ в театрах"
-}
-
-conn = sqlite3.connect('data.db')
-
-def show_tooltip(event, text):
-    """Отображает подсказку над кнопкой."""
-    widget = event.widget
-
-    # Получаем координаты кнопки относительно окна приложения
-    x = widget.winfo_x() + widget.winfo_width() // 2  # Центр кнопки по горизонтали
-    y = widget.winfo_y() - tooltip_label.winfo_reqheight() - 5 # Поднимаем подсказку от кнопки на вышину окна подсказки и еще на 5
-
-    # Устанавливаем текст подсказки
-    tooltip_label.config(text=text)
-    
-    # Получаем размеры подсказки
-    tooltip_width = tooltip_label.winfo_reqwidth()
-    tooltip_height = tooltip_label.winfo_reqheight()
-
-    # Корректируем позицию по центру кнопки
-    x -= tooltip_width // 2  # Центрируем подсказку по горизонтали
-
-    # Проверяем границы окна
-    window_width = root.winfo_width()
-    window_height = root.winfo_height()
-
-    if x + tooltip_width > window_width:
-        x = window_width - tooltip_width  # Не выходить за правую границу окна
-    if x < 0:
-        x = 0  # Не выходить за левую границу окна
-    if y < 0:
-        y = 0  # Не выходить за верхнюю границу окна
-
-    # Позиционируем подсказку
-    tooltip_label.place(x=x, y=y)
-    tooltip_label.lift()
-
-def hide_tooltip(event):
-    """Скрывает подсказку."""
-    tooltip_label.place_forget()
-
-root = tk.Tk()                       #Запускаем окно. Настраиваем параметры окна. Цвета, шрифты, иконки...
-root.configure                       #Можно задать цвет фона окна (bg="#BDBCBC")
-image = PhotoImage(file="icon.png")  #Иконка в панеле задач
-root.iconphoto(True, image)
-root.title("Форма ввода данных")     #Надпись заголовка основного окна
-root.geometry("1200x800")           #Размер окна
-      
-style = ttk.Style()
-style.configure("TLabel", padding=(10, 5), font=("Arial", 10))
-style.configure("TEntry", padding=(10, 5), font=("Arial", 10), width=60)
-style.configure("TButton", padding=(10, 5), font=("Arial", 10), relief="raised", borderwidth = 1, background="#C3C3C3")
-style.configure("TCheckbutton", font=("Arial", 10))
-
-labels = ["Фамилия:", "Имя:", "Отчество:", "СНИЛС:", "Профессия:", "ИНН организации:", "Название организации:", "ИНН работодателя:", "Название работодателя:"]
-
-entries = []
-
-for i, label_text in enumerate(labels):
-    label = ttk.Label(root, text=label_text, style="TLabel")
-    label.grid(row=i, column=0, sticky="w", padx=5, pady=2)
-    entry = ttk.Entry(root, style="TEntry")
-    entry.grid(row=i, column=1, sticky="ew", padx=5, pady=2)
-    entries.append(entry)
-
-for i in range(len(entries)-1):
-    entries[i].bind("<Return>", lambda event, idx=i: entries[idx + 1].focus())
-    
-def on_enter_press(event, idx):
-    """Обрабатывает нажатие Enter и переводит фокус на следующее поле ввода."""
-    try:
-        # Проверяем, что следующее поле существует
-        if idx + 1 < len(entries):
-            next_entry = entries[idx + 1]
-            # Проверяем, что поле видимо и доступно
-            if next_entry.winfo_ismapped():
-                next_entry.focus()
-    except Exception as e:
-        print(f"Ошибка при обработке Enter: {e}")
-  
-surname_entry, name_entry, patronymic_entry, snils_entry, position_entry, org_inn_entry, org_title_entry, employer_org_inn_entry, employer_org_title_entry = entries
-
-#Задаем заранее введённые данные об организациях
-org_inn_entry.insert(0, "1234567890")
-org_title_entry.insert(0, "АО \"Аттестующий\"")
-employer_org_inn_entry.insert(0, "0000000000")
-employer_org_title_entry.insert(0, "АО \"Работодатель\"")
-
-learn_program_label = ttk.Label(root, text="Учебные программы:", style="TLabel")
-learn_program_label.grid(row=len(labels), column=0, columnspan=2, sticky="w", padx=5, pady=2)
-
-#Настройка и расположение скроллбаров
-yscrollbar = ttk.Scrollbar(root, orient="vertical")
-yscrollbar.grid(row=len(labels) + 1, column=0, sticky="nse")
-xscrollbar = ttk.Scrollbar(root, orient="horizontal")
-xscrollbar.grid(row=len(labels), column=1, sticky="ews")
-
-learn_program_var = tk.StringVar(value="")
-learn_program_listbox = tk.Listbox(root, listvariable=learn_program_var, selectmode="multiple", width=60, height=11, selectbackground="#0079C2", selectforeground="white", exportselection=False, xscrollcommand=xscrollbar.set, yscrollcommand=yscrollbar.set)
-learn_program_listbox.grid(row=len(labels)+1, column=1, sticky="ew", padx=5, pady=2)
-xscrollbar.config(command=learn_program_listbox.xview)
-yscrollbar.config(command=learn_program_listbox.yview)
-
-for program_id, program_name in program_mapping.items():
-    learn_program_listbox.insert(tk.END, f"{program_id}. {program_name}")
-
-is_passed_var = tk.BooleanVar()
-is_passed_var.set(True)        # Задает изначально отмеченный чекбокс Сдано
-is_passed_checkbutton = ttk.Checkbutton(root, text="Сдано", variable=is_passed_var, style="TCheckbutton")
-is_passed_checkbutton.grid(row=len(labels)+2, column=0, columnspan=2, sticky='w', padx=5, pady=2)
-
-protocol_number_label = ttk.Label(root, text="Номер протокола:", style="TLabel")
-protocol_number_label.grid(row=len(labels)+3, column=0, sticky="w", padx=5, pady=2)
-protocol_number_entry = ttk.Entry(root, style="TEntry")
-protocol_number_entry.grid(row=len(labels)+3, column=1, sticky="ew", padx=5, pady=2)
-protocol_number_entry.bind("<Return>", lambda event: exam_date_entry.focus())
-
-exam_date_label = ttk.Label(root, text="Дата проверки (дд.мм.гггг):", style="TLabel")
-exam_date_label.grid(row=len(labels)+4, column=0, sticky="w", padx=5, pady=2)
-exam_date_entry = ttk.Entry(root, style="TEntry")
-exam_date_entry.grid(row=len(labels)+4, column=1, sticky="ew", padx=5, pady=2)
-
-#Кнопка выбора профессии из предложенного списка (хранится в файле positions.txt)
-position_button = ttk.Button(root, text="Выбрать из списка", command=lambda: show_position_options(None), style="TButton")
-position_button.grid(row=4, column=2, sticky="w", padx=5, pady=2)
-
-# Фрейм для полей "Иностранный СНИЛС" и "Гражданство"
-foreign_info_frame = tk.Frame(root)
-
-foreignSnils_label = ttk.Label(foreign_info_frame, text="Иностранный СНИЛС:", style="TLabel")
-foreignSnils_label.grid(row=0, column=0, sticky="w", padx=5, pady=2)
-foreignSnils_entry = ttk.Entry(foreign_info_frame, style="TEntry")
-foreignSnils_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
-
-citizenship_label = ttk.Label(foreign_info_frame, text="Гражданство:", style="TLabel")
-citizenship_label.grid(row=1, column=0, sticky="w", padx=5, pady=2)
-citizenship_entry = ttk.Entry(foreign_info_frame, style="TEntry")
-citizenship_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
-
-# Спойлер для полей "Иностранный СНИЛС" и "Гражданство"
-isForeignSnils_var = tk.BooleanVar()
-isForeignSnils_checkbutton = ttk.Checkbutton(root, text="Не гражданин РФ", variable=isForeignSnils_var, command=lambda: show_hide_foreign_info(), style="TCheckbutton")
-isForeignSnils_checkbutton.grid(row=len(labels)+5, column=0, columnspan=2, sticky='w', padx=5, pady=2)
-
-# Поле для ФИО всборе, чтобы потом заполнить отдельно первые три поля
-full_name_label = ttk.Label(root, text="ФИО (введите через пробел):", style="TLabel")
-full_name_label.grid(row=len(labels)+10, column=0, sticky="w", padx=5, pady=2)
-full_name_entry = ttk.Entry(root, style="TEntry")
-full_name_entry.grid(row=len(labels)+10, column=1, sticky="ew", padx=5, pady=2)
-
-#Кнопка для показа лицензии
-about_button = ttk.Button(root, text="О программе", command=show_license, style="TButton")
-about_button.grid(row=len(labels)+10, column=2, sticky="e", padx=5, pady=2)
-about_button.bind("<Enter>", lambda event: show_tooltip(event, "О программе и лицензии"))
-about_button.bind("<Leave>", hide_tooltip)
+        QMessageBox.critical(None, "Непредвиденная ошибка", str(e))
 
 
-def show_hide_foreign_info():
-    """Показывает или скрывает поля для иностранцев."""
-    if isForeignSnils_var.get():
-        foreign_info_frame.grid(row=len(labels)+6, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
-    else:
-        foreign_info_frame.grid_remove()
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
 
-foreign_info_frame.grid_remove()
-    
-# Создаем Label для подсказок к кнопкам
-tooltip_label = tk.Label(root, text="", background="#729FCF", relief="flat", borderwidth=1, wraplength=200)
-tooltip_label.place_forget()
+        self.conn = sqlite3.connect('data.db')
+        self.create_database()
 
-clear_button = ttk.Button(root, text="Очистить всё", command=clear_all_entries, style="TButton")
-clear_button.bind("<Enter>", lambda event: show_tooltip(event, "Очищает всё, кроме полей об организации и отметки Сдано"))
-clear_button.bind("<Leave>", hide_tooltip)
-clear_button.grid(row=8, column=2, sticky="w", padx=5, pady=2)
+        self.setWindowTitle("Форма ввода данных")
+        self.setWindowIcon(QIcon("icon.png"))
+        self.setMinimumSize(1215, 850)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
 
-clear_partial_button = ttk.Button(root, text="Очистить (ФИО, СНИЛС)", command=clear_partial_entries, style="TButton")
-clear_partial_button.bind("<Enter>", lambda event: show_tooltip(event, "Очищает только поля Фамилия, Имя, Отчество и поле СНИЛС"))
-clear_partial_button.bind("<Leave>", hide_tooltip)
-clear_partial_button.grid(row=3, column=2, sticky="w", padx=5, pady=2)
+        self.main_layout = QGridLayout()
+        central_widget.setLayout(self.main_layout)
 
-submit_button = ttk.Button(root, text="Отправить в БД", command=lambda: submit_data(conn), style="TButton")
-submit_button.bind("<Enter>", lambda event: show_tooltip(event, "Сохраняет введенные данные в базу этой программы"))
-submit_button.bind("<Leave>", hide_tooltip)
-submit_button.grid(row=len(labels)+4, column=1, sticky="e", padx=5, pady=2)
+        # Метки и поля ввода
+        labels_text = [
+            "Фамилия:", "Имя:", "Отчество:", "СНИЛС:", "Профессия:",
+            "ИНН организации:", "Название организации:",
+            "ИНН работодателя:", "Название работодателя:"
+        ]
 
-protocol_number_for_xml_label = ttk.Label(root, text="Номер протокола для XML:", style="TLabel")
-protocol_number_for_xml_label.grid(row=len(labels)+8, column=0, sticky="w", padx=5, pady=2)
-protocol_number_for_xml_entry = ttk.Entry(root, style="TEntry")
-protocol_number_for_xml_entry.grid(row=len(labels)+8, column=1, sticky="ew", padx=5, pady=2)
+        self.entries = []
+        for i, text in enumerate(labels_text):
+            label = QLabel(text)
+            entry = QLineEdit()
+            self.main_layout.addWidget(label, i, 0)
+            self.main_layout.addWidget(entry, i, 1)
+            self.entries.append(entry)
 
-xml_button_filtered = ttk.Button(root, text="Создать XML (для протокола)", command=lambda: create_xml_filtered(conn), style="TButton")
-xml_button_filtered.bind("<Enter>", lambda event: show_tooltip(event, "Создаёт в папке с программой файл XML только для одного определённого протокола"))
-xml_button_filtered.bind("<Leave>", hide_tooltip)
-xml_button_filtered.grid(row=len(labels)+8, column=2, sticky="w", padx=5, pady=2)
+        (
+            self.surname_entry, self.name_entry, self.patronymic_entry, self.snils_entry,
+            self.position_entry, self.org_inn_entry, self.org_title_entry,
+            self.employer_org_inn_entry, self.employer_org_title_entry
+        ) = self.entries
 
-xml_button_all = ttk.Button(root, text="Создать XML (вся база)", command=lambda: create_xml_all(conn), style="TButton")
-xml_button_all.bind("<Enter>", lambda event: show_tooltip(event, "Создаёт в папке с программой файл XML для всех протоколов, сохраненных в базу данных этой программы"))
-xml_button_all.bind("<Leave>", hide_tooltip)
-xml_button_all.grid(row=len(labels)+9, column=2, sticky="w", padx=5, pady=2)
+        self.org_inn_entry.setText("1234567890")
+        self.org_title_entry.setText("АО \"Аттестант\"")
+        self.employer_org_inn_entry.setText("0000000000")
+        self.employer_org_title_entry.setText("АО \"Работодатель\"")
 
-def delete_protocol_entry(conn, tree):
-    """Удаляет выбранные записи из базы данных и обновляет Treeview."""
-    try:
-        selected_items = tree.selection()
-        if not selected_items:
-            show_message("Выберите записи для удаления.", "error")
+        # Привязка Enter для перехода между полями (кроме последнего)
+        for i in range(len(self.entries) - 1):
+            self.entries[i].returnPressed.connect(self._make_focus_next_func(i))
+
+        # Кнопка выбора профессии
+        self.position_button = QPushButton("Выбрать из списка")
+        self.position_button.clicked.connect(self.select_position)
+        self.main_layout.addWidget(self.position_button, 4, 2)
+
+        # Учебные программы
+        learn_program_label = QLabel("Учебные программы:")
+        self.main_layout.addWidget(learn_program_label, 9, 0, 1, 2, Qt.AlignLeft)
+
+        self.learn_program_list = QListWidget()
+        self.learn_program_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.learn_program_list.setMinimumHeight(220)
+        for program_id, program_name in program_mapping.items():
+            item = QListWidgetItem(f"{program_id}. {program_name}")
+            item.setData(Qt.UserRole, program_id)
+            self.learn_program_list.addItem(item)
+        self.learn_program_list.itemSelectionChanged.connect(self.update_selected_count)
+        self.main_layout.addWidget(self.learn_program_list, 10, 0, 1, 2)
+        
+        self.selected_count_label = QLabel("Выбрано: 0")
+        self.main_layout.addWidget(self.selected_count_label, 10, 2, Qt.AlignTop)
+
+        # Чекбокс сдано
+        self.is_passed_checkbox = QCheckBox("Сдано")
+        self.is_passed_checkbox.setChecked(True)
+        self.main_layout.addWidget(self.is_passed_checkbox, 11, 0, 1, 2, Qt.AlignLeft)
+
+        # Номер протокола
+        protocol_number_label = QLabel("Номер протокола:")
+        self.protocol_number_entry = QLineEdit()
+        self.protocol_number_entry.returnPressed.connect(lambda: self.exam_date_entry.setFocus())
+        self.main_layout.addWidget(protocol_number_label, 12, 0)
+        self.main_layout.addWidget(self.protocol_number_entry, 12, 1)
+
+        # Дата аттестации + кнопка календаря
+        exam_date_label = QLabel("Дата аттестации:")
+        self.exam_date_entry = QLineEdit()
+        self.main_layout.addWidget(exam_date_label, 13, 0)
+        self.main_layout.addWidget(self.exam_date_entry, 13, 1)
+
+        self.calendar_button = QPushButton("Выбрать дату")
+        self.calendar_button.clicked.connect(self.show_calendar)
+        self.main_layout.addWidget(self.calendar_button, 13, 2)
+
+        # Кнопка отправки
+        self.submit_button = QPushButton("Отправить в БД")
+        self.submit_button.clicked.connect(self.submit_data)
+        self.main_layout.addWidget(self.submit_button, 14, 1, Qt.AlignRight)
+
+        # Информация о протоколах
+        self.protocol_info_button = QPushButton("Информация о протоколах")
+        self.protocol_info_button.clicked.connect(self.show_protocol_info)
+        self.main_layout.addWidget(self.protocol_info_button, 14, 2, Qt.AlignLeft)
+
+        # Чекбокс для иностранного СНИЛС + блок с вводом данных для иностранцев
+        self.isForeignSnils_checkbox = QCheckBox("Не гражданин РФ")
+        self.isForeignSnils_checkbox.stateChanged.connect(self.toggle_foreign_info)
+        self.main_layout.addWidget(self.isForeignSnils_checkbox, 15, 0, 1, 2)
+
+        self.foreign_info_widget = QWidget()
+        foreign_layout = QGridLayout()
+        self.foreign_info_widget.setLayout(foreign_layout)
+
+        foreignSnils_label = QLabel("Иностранный СНИЛС:")
+        self.foreignSnils_entry = QLineEdit()
+        citizenship_label = QLabel("Гражданство:")
+        self.citizenship_entry = QLineEdit()
+
+        foreign_layout.addWidget(foreignSnils_label, 0, 0)
+        foreign_layout.addWidget(self.foreignSnils_entry, 0, 1)
+        foreign_layout.addWidget(citizenship_label, 1, 0)
+        foreign_layout.addWidget(self.citizenship_entry, 1, 1)
+
+        self.main_layout.addWidget(self.foreign_info_widget, 16, 0, 1, 3)
+        self.foreign_info_widget.hide()
+
+        # Поле для ввода полного ФИО через пробел
+        full_name_label = QLabel("ФИО (введите через пробел):")
+        self.full_name_entry = QLineEdit()
+        self.full_name_entry.returnPressed.connect(self.parse_full_name)
+        self.main_layout.addWidget(full_name_label, 20, 0)
+        self.main_layout.addWidget(self.full_name_entry, 20, 1)
+
+        # Кнопка инструкции
+        self.manual_button = QPushButton("Инструкция")
+        self.manual_button.clicked.connect(self.show_manual)
+        self.main_layout.addWidget(self.manual_button, 20, 2)
+
+        # Кнопки очистки
+        self.clear_all_button = QPushButton("Очистить всё")
+        self.clear_all_button.clicked.connect(self.clear_all_entries)
+        self.main_layout.addWidget(self.clear_all_button, 8, 2)
+
+        self.clear_partial_button = QPushButton("Очистить (ФИО, СНИЛС)")
+        self.clear_partial_button.clicked.connect(self.clear_partial_entries)
+        self.main_layout.addWidget(self.clear_partial_button, 3, 2)
+
+        # Поле и кнопка для создания XML по номеру протокола
+        protocol_xml_label = QLabel("Номер протокола для XML:")
+        self.protocol_number_for_xml_entry = QLineEdit()
+        self.xml_button_filtered = QPushButton("Создать XML (для протокола)")
+        self.xml_button_filtered.clicked.connect(self.create_xml_filtered)
+
+        self.xml_button_all = QPushButton("Создать XML (вся база)")
+        self.xml_button_all.clicked.connect(self.create_xml_all)
+
+        row_base = 18
+        self.main_layout.addWidget(protocol_xml_label, row_base, 0)
+        self.main_layout.addWidget(self.protocol_number_for_xml_entry, row_base, 1)
+        self.main_layout.addWidget(self.xml_button_filtered, row_base, 2)
+        self.main_layout.addWidget(self.xml_button_all, row_base + 1, 2)
+
+        # Фокусные переходы на Enter: дата и кнопка
+        self.exam_date_entry.returnPressed.connect(lambda: self.submit_button.setFocus())
+        self.submit_button.setAutoDefault(True)
+        self.submit_button.pressed.connect(self.submit_data)
+
+        # Автозаполнение по ФИО при потере фокуса Отчества
+        self.patronymic_entry.editingFinished.connect(self.try_autocomplete_snils_and_position)
+
+        # Навигация стрелками внутри форм
+        for edit in self.entries:
+            edit.keyPressEvent = self._make_arrow_navigation(edit.keyPressEvent, edit)
+
+    def _make_focus_next_func(self, index):
+        def func():
+            if index + 1 < len(self.entries):
+                next_widget = self.entries[index + 1]
+                next_widget.setFocus()
+        return func
+
+    def _make_arrow_navigation(self, original_handler, widget):
+        def new_handler(event):
+            key = event.key()
+            if key in (Qt.Key_Up, Qt.Key_Down):
+                row = self.main_layout.getItemPosition(self.main_layout.indexOf(widget))[0]
+                col = self.main_layout.getItemPosition(self.main_layout.indexOf(widget))[1]
+                if key == Qt.Key_Up:
+                    new_row = row - 1
+                else:
+                    new_row = row + 1
+                if new_row >= 0:
+                    items = self._get_widgets_by_position(new_row, col)
+                    if items:
+                        items[0].setFocus()
+                        items[0].setCursorPosition(len(items[0].text()))
+                return
+            # Влево / вправо - перемещаем курсор если возможно
+            if key == Qt.Key_Left:
+                cursor_pos = widget.cursorPosition()
+                if cursor_pos > 0:
+                    # Позволяем обрабатывать
+                    original_handler(event)
+                    return
+            if key == Qt.Key_Right:
+                cursor_pos = widget.cursorPosition()
+                if cursor_pos < len(widget.text()):
+                    original_handler(event)
+                    return
+            # Остальные обработчики по умолчанию
+            original_handler(event)
+        return new_handler
+
+    def _get_widgets_by_position(self, row, column):
+        widgets = []
+        for i in range(self.main_layout.count()):
+            r, c, _, _ = self.main_layout.getItemPosition(i)
+            if r == row and c == column:
+                item = self.main_layout.itemAt(i)
+                if item.widget():
+                    widgets.append(item.widget())
+        return widgets
+
+    def toggle_foreign_info(self, state):
+        if self.isForeignSnils_checkbox.isChecked():
+            self.foreign_info_widget.show()
+        else:
+            self.foreign_info_widget.hide()
+
+    def select_position(self):
+        pos = PositionSelectorDialog.get_position(self)
+        if pos:
+            self.position_entry.setText(pos)
+
+    def show_manual(self):
+        dialog = InstructionDialog(self)
+        dialog.exec_()
+
+    def show_calendar(self):
+        dialog = CalendarDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            date = dialog.get_selected_date()
+            self.exam_date_entry.setText(date.toString("dd.MM.yyyy"))
+
+    def update_selected_count(self):
+        count = len(self.learn_program_list.selectedItems())
+        self.selected_count_label.setText(f"Выбрано: {count}")
+
+    def clear_all_entries(self):
+        # Очищаем ВСЕ поля, кроме указанных четырёх
+        self.surname_entry.clear()
+        self.name_entry.clear()
+        self.patronymic_entry.clear()
+        self.snils_entry.clear()
+        self.position_entry.clear()
+        # НЕ ОЧИЩАЕМ self.org_inn_entry
+        # НЕ ОЧИЩАЕМ self.org_title_entry
+        # НЕ ОЧИЩАЕМ self.employer_org_inn_entry
+        # НЕ ОЧИЩАЕМ self.employer_org_title_entry
+        self.learn_program_list.clearSelection()
+        self.is_passed_checkbox.setChecked(True)
+        self.protocol_number_entry.clear()
+        self.exam_date_entry.clear()
+        self.isForeignSnils_checkbox.setChecked(False)
+        self.foreignSnils_entry.clear()
+        self.citizenship_entry.clear()
+        self.update_selected_count()
+
+    def clear_partial_entries(self):
+        self.surname_entry.clear()
+        self.name_entry.clear()
+        self.patronymic_entry.clear()
+        self.snils_entry.clear()
+
+    def parse_full_name(self):
+        full_name = self.full_name_entry.text().strip()
+        parts = full_name.split()
+        if len(parts) == 3:
+            self.surname_entry.setText(parts[0])
+            self.name_entry.setText(parts[1])
+            self.patronymic_entry.setText(parts[2])
+            self.patronymic_entry.setFocus()
+        else:
+            QMessageBox.warning(self, "Ошибка", "Введите Фамилию, Имя и Отчество через пробел (три слова).")
+
+    def try_autocomplete_snils_and_position(self):
+        surname = self.surname_entry.text().strip()
+        name = self.name_entry.text().strip()
+        patronymic = self.patronymic_entry.text().strip()
+
+        if surname and name and patronymic:
+            suggest_autofill_data(self, self.conn, surname, name, patronymic, self.snils_entry, self.position_entry)
+
+    def submit_data(self):
+        surname = self.surname_entry.text().strip()
+        name = self.name_entry.text().strip()
+        patronymic = self.patronymic_entry.text().strip()
+        snils = self.snils_entry.text().strip()
+        isForeignSnils = 1 if self.isForeignSnils_checkbox.isChecked() else 0
+        foreignSnils = self.foreignSnils_entry.text().strip()
+        citizenship = self.citizenship_entry.text().strip()
+        position = self.position_entry.text().strip()
+        org_inn = self.org_inn_entry.text().strip()
+        org_title = self.org_title_entry.text().strip()
+        employer_org_inn = self.employer_org_inn_entry.text().strip()
+        employer_org_title = self.employer_org_title_entry.text().strip()
+        selected_items = self.learn_program_list.selectedItems()
+        selected_program_ids = [item.data(Qt.UserRole) for item in selected_items]
+        is_passed = 1 if self.is_passed_checkbox.isChecked() else 0
+        protocol_number = self.protocol_number_entry.text().strip()
+        exam_date = self.exam_date_entry.text().strip()
+        now = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+
+        required_fields = [surname, name, snils, exam_date, protocol_number]
+        if not all(required_fields):
+            QMessageBox.warning(self, "Ошибка", "Все обязательные поля не заполнены.")
             return
 
-        ids_to_delete = [tree.item(item)['values'][-1] for item in selected_items]
+        if not validate_snils(snils):
+            reply = QMessageBox.question(
+                self,
+                "Неверный СНИЛС",
+                f"СНИЛС не прошел проверку.\nВведённый СНИЛС: {snils}\n\nСохранить данные с этим СНИЛС?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
 
-        if messagebox.askyesno("Подтверждение", f"Вы уверены, что хотите удалить выбранные записи?"):
-            with conn:
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM users WHERE id IN ({})".format(','.join(['?'] * len(ids_to_delete))), ids_to_delete)
-                rows_affected = cursor.rowcount
+        if not validate_date(exam_date):
+            QMessageBox.warning(self, "Ошибка", "Неверный формат даты. Ожидается ДД.ММ.ГГГГ")
+            return
 
-            if rows_affected > 0:
-                for item in selected_items:
-                    tree.delete(item)
-                show_message(f"Выбранные записи успешно удалены!", "success")
-            else:
-                show_message(f"Ошибка удаления выбранных записей.", "error")
+        if "/" in protocol_number:
+            QMessageBox.warning(self, "Ошибка", "Номер протокола не должен содержать символ '/'")
+            return
 
-    except sqlite3.Error as e:
-        messagebox.showerror("Ошибка", f"Ошибка базы данных: {e}")
-    except Exception as e:
-        messagebox.showerror("Ошибка", f"Ошибка: {e}")
+        if not selected_program_ids:
+            QMessageBox.warning(self, "Ошибка", "Выберите хотя бы одну учебную программу.")
+            return
 
-def show_details(conn, tree, selected_item):
-    """Отображает подробную информацию о выбранном протоколе."""
-    try:
-        item_id = tree.item(selected_item)['values'][-1]  # Получаем ID из treeview
-
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users WHERE id = ?", (item_id,))
-            row = cursor.fetchone()
-            global column_names
-            column_names = [description[0] for description in cursor.description]  # Сохраняем имена столбцов
-
-            detail_window = tk.Toplevel(root)
-            detail_window.title("Подробная информация")
-
-            global entries, initial_values
-            entries = []
-            initial_values = row  # Сохраняем начальные значения для сравнения
-
-            # Создание меток и полей ввода для редактирования
-            for i, value in enumerate(row):
-                label = ttk.Label(detail_window, text=column_names[i], anchor="w")
-                label.grid(row=i, column=0, sticky="w")
-                
-                entry = ttk.Entry(detail_window)
-                entry.insert(0, value)
-                entry.grid(row=i, column=1, sticky="ew")
-                entries.append(entry)
-
-                # Привязываем обработчик Enter только для текущего окна
-                entry.bind("<Return>", lambda event, idx=i: on_detail_enter(event, idx, entries))
-
-            # Кнопка для сохранения изменений
-            save_button = ttk.Button(detail_window, text="Сохранить изменения", command=lambda: save_changes(item_id))
-            save_button.grid(row=len(row), column=1)
-
-            # Обработчик закрытия окна
-            def on_detail_window_close():
-                # Отвязываем все обработчики событий
-                for entry in entries:
-                    entry.unbind("<Return>")
-                detail_window.destroy()
-
-            detail_window.protocol("WM_DELETE_WINDOW", on_detail_window_close)
+        try:
+            with self.conn:
+                for pid in selected_program_ids:
+                    self.conn.execute(
+                        '''
+                        INSERT INTO users (
+                            surname, name, patronymic, snils, isForeignSnils, foreignSnils, citizenship,
+                            position, org_inn, org_title, employer_org_inn, employer_org_title,
+                            learn_program_id, is_passed, protocol_number, exam_date, entry_date
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''',
+                        (
+                            surname, name, patronymic, snils, isForeignSnils, foreignSnils, citizenship,
+                            position, org_inn, org_title, employer_org_inn, employer_org_title,
+                            pid, is_passed, protocol_number, exam_date, now
+                        )
+                    )
+            QMessageBox.information(self, "Успех", "Данные успешно сохранены!")
             
-    except Exception as e:
-        messagebox.showerror("Ошибка", f"Ошибка: {e}")
+        except sqlite3.Error as e:
+            QMessageBox.critical(self, "Ошибка базы данных", str(e))
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
 
-def on_detail_enter(event, idx, entries):
-    """Обрабатывает нажатие Enter в окне подробной информации."""
-    try:
-        if idx + 1 < len(entries):
-            next_entry = entries[idx + 1]
-            if next_entry.winfo_exists():  # Проверяем, существует ли виджет
-                next_entry.focus()
-    except Exception as e:
-        print(f"Ошибка при обработке Enter: {e}")
-        
-def save_changes(item_id):
-    """Сохраняет изменения в базе данных."""
-    try:
-        updated_values = []
-        set_clause = []
-        
-        current_values = [entry.get() for entry in entries]
+    def show_protocol_info(self):
+        dialog = ProtocolInfoDialog(self.conn, self)
+        dialog.exec_()
 
-        for i, value in enumerate(current_values):
-            if value != initial_values[i]:  # Если значение изменено
-                set_clause.append(f"{column_names[i]}=?")
-                updated_values.append(value)
+    def create_xml_filtered(self):
+        target_protocol_number = self.protocol_number_for_xml_entry.text().strip()
+        if not target_protocol_number:
+            QMessageBox.warning(self, "Ошибка", "Введите номер протокола для создания XML.")
+            return
+        create_xml(self.conn, target_protocol_number)
+        QMessageBox.information(self, "Успех", "XML-файл успешно создан.")
 
-        # Добавляем id в конец
-        if set_clause:
-            updated_values.append(item_id)
-            query = f"""
-                UPDATE users SET {', '.join(set_clause)} WHERE id=?
-            """
-            with conn:
-                cursor = conn.cursor()
-                cursor.execute(query, updated_values)
-            show_message("Изменения успешно сохранены!", "success")
-        else:
-            show_message("Нет изменений для сохранения.", "info")
+    def create_xml_all(self):
+        create_xml(self.conn)
+        QMessageBox.information(self, "Успех", "XML-файл успешно создан.")
 
-    except sqlite3.Error as e:
-        show_message(f"Ошибка базы данных: {e}", "error")
-    except Exception as e:
-        show_message(f"Ошибка: {e}", "error")
+    def create_database(self):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                    surname TEXT,
+                    name TEXT,
+                    patronymic TEXT,
+                    snils TEXT,
+                    isForeignSnils INTEGER,
+                    foreignSnils TEXT,
+                    citizenship TEXT,
+                    position TEXT,
+                    org_inn TEXT,
+                    org_title TEXT,
+                    employer_org_inn TEXT,
+                    employer_org_title TEXT,
+                    learn_program_id INTEGER,
+                    is_passed INTEGER,
+                    protocol_number TEXT,
+                    exam_date TEXT,
+                    entry_date TEXT
+                )
+                '''
+            )
+            self.conn.commit()
+        except sqlite3.Error as e:
+            QMessageBox.critical(self, "Ошибка базы данных", str(e))
 
-def show_protocol_info(conn):
-    """Отображает информацию о протоколах в Treeview с сортировкой и прокруткой."""
-    try:
-        protocol_info_window = tk.Toplevel(root)
-        protocol_info_window.title("Информация о протоколах")
-        protocol_info_window.geometry("1500x800")
-
-        # Фрейм для Treeview и прокрутки
-        tree_frame = ttk.Frame(protocol_info_window)
-        tree_frame.pack(fill="both", expand=True, padx=5, pady=2)
-
-        # Горизонтальная и вертикальная прокрутка
-        yscrollbar = ttk.Scrollbar(tree_frame, orient="vertical")
-        xscrollbar = ttk.Scrollbar(tree_frame, orient="horizontal")
-
-        # Настройка Treeview
-        tree = ttk.Treeview(
-            tree_frame,
-            columns=("Протокол", "Фамилия", "Имя", "Отчество", "Дата", "Программа", "ID"),
-            show="headings",
-            yscrollcommand=yscrollbar.set,
-            xscrollcommand=xscrollbar.set,
-            selectmode="extended"
-        )
-
-        yscrollbar.config(command=tree.yview)
-        xscrollbar.config(command=tree.xview)
-
-        # Заголовки колонок
-        tree.heading("Протокол", text="Протокол", anchor="w")
-        tree.heading("Фамилия", text="Фамилия", anchor="w")
-        tree.heading("Имя", text="Имя", anchor="w")
-        tree.heading("Отчество", text="Отчество", anchor="w")
-        tree.heading("Дата", text="Дата проверки", anchor="w")
-        tree.heading("Программа", text="Учебная программа", anchor="w")
-        tree.heading("ID", text="ID", anchor="w")
-
-        # Ширина колонок
-        tree.column("Протокол", width=70, stretch=False)
-        tree.column("Фамилия", width=150, stretch=False)
-        tree.column("Имя", width=150, stretch=False)
-        tree.column("Отчество", width=150, stretch=False)
-        tree.column("Дата", width=100, stretch=False)
-        tree.column("Программа", width=530, stretch=False)
-        tree.column("ID", width=0, stretch=False, minwidth=0)  # Скрытая колонка
-
-        # Размещение Treeview и прокрутки
-        tree.pack(side="left", fill="both", expand=True)
-        yscrollbar.pack(side="right", fill="y")
-        xscrollbar.pack(side="bottom", fill="x")
-
-        # Функция сортировки
-        def treeview_sort_column(col, reverse):
-            data = [(tree.set(child, col), child) for child in tree.get_children('')]
-            data.sort(reverse=reverse)
-            for index, (val, child) in enumerate(data):
-                tree.move(child, '', index)
-            tree.heading(col, command=lambda: treeview_sort_column(col, not reverse))
-
-        # Настройка сортировки для всех колонок
-        for col in ("Протокол", "Фамилия", "Имя", "Отчество", "Дата", "Программа"):
-            tree.heading(col, command=lambda c=col: treeview_sort_column(c, False))
-
-        # Загрузка данных
-        def load_data():
-            tree.delete(*tree.get_children())
-            with conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT 
-                        protocol_number, 
-                        surname, 
-                        name, 
-                        patronymic, 
-                        exam_date, 
-                        learn_program_id,
-                        id
-                    FROM users
-                    ORDER BY protocol_number
-                """)
-                rows = cursor.fetchall()
-                for row in rows:
-                    # Получаем название программы из словаря program_mapping
-                    program_id = row[5]
-                    program_name = program_mapping.get(program_id, "Неизвестная программа")
-                    # Вставляем данные в Treeview
-                    tree.insert("", tk.END, values=(row[0], row[1], row[2], row[3], row[4], program_name, row[6]))
-
-        load_data()
-
-        # Контекстное меню
-        context_menu = tk.Menu(protocol_info_window, tearoff=0)
-        context_menu.add_command(
-            label="Сформировать XML",
-            command=lambda: generate_xml_for_selected(conn, tree)
-        )
-        context_menu.add_command(
-            label="Удалить запись",
-            command=lambda: delete_selected_entry(conn, tree)
-        )
-        context_menu.add_command(
-            label="Просмотр и изменение",
-            command=lambda: show_details(conn, tree, tree.selection()[0])
-        )
-        context_menu.add_separator()
-        context_menu.add_command(
-            label="Обновить данные",
-            command=load_data
-        )
-
-        # Обработчики событий
-        def on_right_click(event):
-            try:
-                selected_item = tree.identify_row(event.y)
-                if selected_item:
-                    tree.selection_set(selected_item)
-                    context_menu.post(event.x_root, event.y_root)
-            except Exception as e:
-                print(f"Ошибка контекстного меню: {e}")
-
-        def on_double_click(event):
-            try:
-                selected_item = tree.identify_row(event.y)
-                if selected_item:
-                    tree.selection_set(selected_item)
-                    show_details(conn, tree, selected_item)
-            except Exception as e:
-                print(f"Ошибка двойного клика: {e}")
-
-        tree.bind("<Button-3>", on_right_click)
-        tree.bind("<Double-1>", on_double_click)
-
-        # Статусная строка
-        status_frame = ttk.Frame(protocol_info_window)
-        status_frame.pack(fill="x", padx=5, pady=2)
-        
-        status_label = ttk.Label(
-            status_frame,
-            text=f"Всего записей: {len(tree.get_children())}",
-            relief="sunken"
-        )
-        status_label.pack(side="left", fill="x", expand=True)
-
-        # Функция обновления статусной строки
-        def update_status():
-            status_label.config(text=f"Всего записей: {len(tree.get_children())}")
-            protocol_info_window.after(1000, update_status)
-
-        update_status()
-
-        protocol_info_window.mainloop()
-
-    except Exception as e:
-        messagebox.showerror("Ошибка", f"Ошибка: {e}")
-        
-def generate_xml_for_selected(conn, tree):
-    """Генерирует XML для выбранного протокола."""
-    try:
-        selected_item = tree.selection()[0]
-        protocol_number = tree.item(selected_item, 'values')[0]
-        if protocol_number:
-            create_xml(conn, protocol_number)
-        else:
-            show_message("Не выбран протокол.", "error")
-    except IndexError:
-        show_message("Не выбрана запись.", "error")
-    except Exception as e:
-        show_message(f"Ошибка генерации XML: {e}", "error")
-
-def delete_selected_entry(conn, tree):
-    """Удаляет выбранную запись, запрашивая подтверждение."""
-    selected_items = tree.selection()
-    if not selected_items:
-        show_message("Выберите запись для удаления.", "error")
-        return
-
-    ids_to_delete = [tree.item(item)['values'][-1] for item in selected_items]
-    if messagebox.askyesno("Подтверждение удаления", f"Уверены, что хотите удалить {len(ids_to_delete)} запись(и)?"):
-        delete_protocol_entry(conn, tree)        
-
-#Привязка проверки к событию потери фокуса на поле "Отчество"
-def on_patronymic_focus_out(event):
-    surname = surname_entry.get()
-    name = name_entry.get()
-    patronymic = patronymic_entry.get()
-
-    if surname and name and patronymic:
-        suggest_autofill_data(conn, surname, name, patronymic)
-
-patronymic_entry.bind("<FocusOut>", on_patronymic_focus_out)
-
-protocol_info_button = ttk.Button(root, text="Информация о протоколах", command=lambda: show_protocol_info(conn), style="TButton")
-protocol_info_button.bind("<Enter>", lambda event: show_tooltip(event, "Выводит окно с краткой информацией о сохранённых в базу данных программы записях"))
-protocol_info_button.bind("<Leave>", hide_tooltip)
-protocol_info_button.grid(row=len(labels)+4, column=2,  sticky="w", padx=5, pady=2)
-
-def on_date_enter_press(event):
-    """Обрабатывает нажатие Enter на поле "Дата проверки" и переводит фокус на следующее поле или кнопку."""
-    widget = event.widget
-    if widget == exam_date_entry:
-        submit_button.focus()
-    elif widget == submit_button:
-        submit_button.invoke()
-exam_date_entry.bind("<Return>", on_date_enter_press)
-submit_button.bind("<Return>", on_date_enter_press)
-
-# Функция для обработки события нажатия Enter
-def on_full_name_enter(event):
-    full_name = full_name_entry.get().strip()  # Убираем лишние пробелы
-    parts = full_name.split()  # Разделяем строку по пробелам
-    
-    if len(parts) == 3:
-        # Заполняем поля "Фамилия", "Имя" и "Отчество"
-        surname_entry.delete(0, tk.END)
-        surname_entry.insert(0, parts[0])
-        
-        name_entry.delete(0, tk.END)
-        name_entry.insert(0, parts[1])
-        
-        patronymic_entry.delete(0, tk.END)
-        patronymic_entry.insert(0, parts[2])
-        
-        # Устанавливаем фокус на поле "Отчество"
-        patronymic_entry.focus()
-    else:
-        # Если введено не три слова, показываем сообщение об ошибке
-        show_message("Ошибка: введите Фамилию, Имя и Отчество через пробел (три слова).", "error")
-
-full_name_entry.bind("<Return>", on_full_name_enter)
-
-def on_arrow_press(event):
-    """Обрабатывает нажатие стрелок и перемещает курсор в соответствующее поле."""
-    current_entry = event.widget
-    current_cursor_index = current_entry.index(tk.INSERT)  # Получаем позицию курсора
-
-    if event.keysym == "Up":
-        new_row = current_entry.grid_info()["row"] - 1
-    elif event.keysym == "Down":
-        new_row = current_entry.grid_info()["row"] + 1
-    elif event.keysym == "Left":
-        current_entry.icursor(current_cursor_index - 1)
-        return  # Не переключаем поле, если стрелка влево
-    elif event.keysym == "Right":
-        current_entry.icursor(current_cursor_index + 1)
-        return  # Не переключаем поле, если стрелка вправо
-    else:
-        return
-
-    new_col = current_entry.grid_info()["column"]
-
-    try:
-        next_entry = root.grid_slaves(row=new_row, column=new_col)[0]
-        if isinstance(next_entry, tk.Entry) or isinstance(next_entry, ttk.Entry):
-            next_entry.focus()
-            next_entry.icursor(tk.END)  # Устанавливаем курсор в конец поля
-    except IndexError:
-        pass
-
-# Привязываем обработчик к событиям нажатия стрелок
-for entry in entries:
-    entry.bind("<Up>", on_arrow_press)
-    entry.bind("<Down>", on_arrow_press)
-    entry.bind("<Left>", on_arrow_press)
-    entry.bind("<Right>", on_arrow_press) 
+    def closeEvent(self, event):
+        self.conn.close()
+        event.accept()
 
 
-create_database(conn)
+def main():
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
 
-root.columnconfigure(1, weight=1)
-root.mainloop()
-conn.close()
 
+if __name__ == '__main__':
+    main()
