@@ -631,7 +631,9 @@ to attach them to the start of each source file to most effectively
 state the exclusion of warranty; and each file should have at least
 the "copyright" line and a pointer to where the full notice is found.
 
-    <Приложение на Python с графическим интерфейсом (GUI) на основе Tkinter, предназначенное для генерации XML- файла с данными о сотрудниках организации, прошедших обучение и аттестацию по определенным программам подготовки в области охраны труда. Приложение также позволяет сохранять информацию о протоколах.>
+    <Приложение на Python, для генерации XML файла для загрузки на портал минтруда РФ
+с данными о сотрудниках организации, прошедших обучение и аттестацию по определенным программам подготовки в области охраны труда.
+Приложение также позволяет сохранять информацию о протоколах. Актуально для специалистов по ОТ>
     Copyright (C) <2025>  <Guskov Alexandr>
 
     This program is free software: you can redistribute it and/or modify
