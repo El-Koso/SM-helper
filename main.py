@@ -1,5 +1,5 @@
 ## Лицензия. Этот проект распространяется под лицензией GPLv3.
-## Подробности можно найти в файле LICENSE
+## Подробности можно найти в файле COPYING
 
 import sys
 import os
@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QPushButton, QListWidget, QListWidgetItem,
     QMessageBox, QCheckBox, QScrollArea, QDialog, QCalendarWidget, QAbstractItemView,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMenu
+    QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem
 )
 from PyQt5.QtCore import Qt, QTimer, QDate
 from PyQt5.QtGui import QIcon
@@ -154,6 +154,57 @@ class PositionSelectorDialog(QDialog):
         return None
 
 
+class OrganizationSelectorDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Выберите организацию")
+        self.setMinimumSize(800, 400)
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        self.list_widget = QListWidget()
+        layout.addWidget(self.list_widget)
+
+        try:
+            with open("organizations.txt", "r", encoding="utf-8") as file:
+                organizations = [org.strip() for org in file.readlines() if org.strip()]
+            for org in organizations:
+                if org:
+                    self.list_widget.addItem(org)
+        except FileNotFoundError:
+            QMessageBox.critical(self, "Ошибка", "Файл organizations.txt не найден.")
+            self.reject()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+            self.reject()
+
+        self.list_widget.itemDoubleClicked.connect(self.item_selected)
+
+        self.selected_organization = None
+        self.selected_inn = None
+
+    def item_selected(self, item):
+        full_text = item.text()
+        # Разделяем по точке с запятой
+        parts = full_text.split(';', 1)
+        if len(parts) == 2:
+            self.selected_inn = parts[0].strip()
+            self.selected_organization = parts[1].strip()
+        else:
+            # Если формат неверный, используем весь текст как название
+            self.selected_organization = full_text
+            self.selected_inn = ""
+        self.accept()
+
+    @staticmethod
+    def get_organization(parent=None):
+        dialog = OrganizationSelectorDialog(parent)
+        result = dialog.exec_()
+        if result == QDialog.Accepted:
+            return dialog.selected_inn, dialog.selected_organization
+        return None, None
+
+
 class CalendarDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -165,7 +216,7 @@ class CalendarDialog(QDialog):
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
-        self.calendar.activated.connect(self.accept)  # Добавляем обработку двойного клика
+        self.calendar.activated.connect(self.accept)
         
         layout.addWidget(self.calendar)
 
@@ -221,7 +272,6 @@ class ProtocolDetailsDialog(QDialog):
             form_layout.addWidget(line_edit, i, 1)
             self.entries.append(line_edit)
 
-            # Ввод Enter переключает на следующее поле
             def make_on_return(idx):
                 def on_return():
                     if idx + 1 < len(self.entries):
@@ -256,7 +306,7 @@ class ProtocolDetailsDialog(QDialog):
             cursor.execute(query, updated_values)
             self.conn.commit()
             QMessageBox.information(self, "Успех", "Изменения успешно сохранены!")
-            self.accept()  # Можно закрывать диалог
+            self.accept()
         except sqlite3.Error as e:
             QMessageBox.critical(self, "Ошибка базы данных", str(e))
         except Exception as e:
@@ -273,16 +323,14 @@ class ProtocolInfoDialog(QDialog):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        self.table = QTableWidget()
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels(["Протокол", "Фамилия", "Имя", "Отчество", "Дата проверки", "Учебная программа", "ID"])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setSortingEnabled(True)
-
-        layout.addWidget(self.table)
+        # Дерево протоколов: множественный выбор по Ctrl, группы свернуты по умолчанию
+        self.tree_widget = QTreeWidget()
+        self.tree_widget.setHeaderLabels(["Протокол", "Фамилия", "Имя", "Отчество", "Дата проверки", "Учебная программа"])
+        self.tree_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tree_widget.header().setSectionResizeMode(QHeaderView.Interactive)
+        self.tree_widget.setSortingEnabled(False)
+        layout.addWidget(self.tree_widget)
 
         buttons_layout = QHBoxLayout()
         layout.addLayout(buttons_layout)
@@ -291,9 +339,13 @@ class ProtocolInfoDialog(QDialog):
         self.refresh_btn.clicked.connect(self.load_data)
         buttons_layout.addWidget(self.refresh_btn)
 
-        self.xml_btn = QPushButton("Сформировать XML")
+        self.xml_btn = QPushButton("Сформировать XML (по записи)")
         self.xml_btn.clicked.connect(self.generate_xml_for_selected)
         buttons_layout.addWidget(self.xml_btn)
+
+        self.xml_selected_protocols_btn = QPushButton("Создать XML (выбранные протоколы)")
+        self.xml_selected_protocols_btn.clicked.connect(self.generate_xml_for_selected_protocols)
+        buttons_layout.addWidget(self.xml_selected_protocols_btn)
 
         self.delete_btn = QPushButton("Удалить запись")
         self.delete_btn.clicked.connect(self.delete_selected_entry)
@@ -306,43 +358,86 @@ class ProtocolInfoDialog(QDialog):
         self.status_label = QLabel()
         layout.addWidget(self.status_label)
 
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self.open_context_menu)
+        self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree_widget.customContextMenuRequested.connect(self.open_context_menu)
 
         self.load_data()
 
     def load_data(self):
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(0)
+        self.tree_widget.setSortingEnabled(False)
+        self.tree_widget.clear()
 
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT protocol_number, surname, name, patronymic, exam_date, learn_program_id, id FROM users ORDER BY protocol_number
+            SELECT protocol_number, surname, name, patronymic, exam_date, learn_program_id, id
+            FROM users
+            ORDER BY protocol_number, surname, name
         """)
         rows = cursor.fetchall()
 
-        for row_data in rows:
-            row_idx = self.table.rowCount()
-            self.table.insertRow(row_idx)
-            for col_idx in range(7):
-                if col_idx == 5:  # Учебная программа по id
-                    program_name = program_mapping.get(row_data[col_idx], "Неизвестная программа")
-                    item = QTableWidgetItem(program_name)
-                else:
-                    item = QTableWidgetItem(str(row_data[col_idx]) if row_data[col_idx] is not None else "")
-                self.table.setItem(row_idx, col_idx, item)
+        current_protocol_item = None
+        current_protocol_number = None
 
-        self.table.setColumnHidden(6, True)  # Скрыть столбец ID
-        self.status_label.setText(f"Всего записей: {self.table.rowCount()}")
-        self.table.setSortingEnabled(True)
+        for row_data in rows:
+            protocol_number = row_data[0] or ""
+            if current_protocol_item is None or str(current_protocol_number) != str(protocol_number):
+                current_protocol_number = protocol_number
+                current_protocol_item = QTreeWidgetItem(self.tree_widget, [str(protocol_number), "", "", "", "", ""])
+                # По умолчанию свернуто
+                current_protocol_item.setExpanded(False)
+
+            program_name = program_mapping.get(row_data[5], "Неизвестная программа")
+
+            child_item = QTreeWidgetItem(current_protocol_item, [
+                "",  # Протокол у родителя
+                str(row_data[1] or ""),
+                str(row_data[2] or ""),
+                str(row_data[3] or ""),
+                str(row_data[4] or ""),
+                program_name
+            ])
+            child_item.setData(0, Qt.UserRole, row_data[6])
+
+        total_records = len(rows)
+        self.status_label.setText(f"Всего записей: {total_records}")
+
+        # Гарантированно свернуть все группы
+        self.tree_widget.collapseAll()
+        self.tree_widget.setSortingEnabled(False)
 
     def get_selected_row_id(self):
-        selected_items = self.table.selectedItems()
+        selected_items = self.tree_widget.selectedItems()
         if not selected_items:
             QMessageBox.warning(self, "Внимание", "Выберите запись.")
             return None
-        # ID находится в скрытом столбце 6
-        return int(self.table.item(selected_items[0].row(), 6).text())
+
+        selected_item = selected_items[0]
+        if selected_item.parent() is None:
+            if selected_item.childCount() > 0:
+                return selected_item.child(0).data(0, Qt.UserRole)
+            else:
+                QMessageBox.warning(self, "Внимание", "Выберите конкретную запись, а не номер протокола.")
+                return None
+        return selected_item.data(0, Qt.UserRole)
+
+    def get_selected_protocol_numbers(self):
+        selected_items = self.tree_widget.selectedItems()
+        seen = set()
+        protocols = []
+        for item in selected_items:
+            if item.parent() is None:
+                proto = item.text(0).strip()
+            else:
+                proto = item.parent().text(0).strip()
+            if proto and proto not in seen:
+                seen.add(proto)
+                protocols.append(proto)
+        # Естественная сортировка: числовая, если все цифры, иначе строковая
+        if all(p.isdigit() for p in protocols):
+            protocols.sort(key=lambda x: int(x))
+        else:
+            protocols.sort()
+        return protocols
 
     def generate_xml_for_selected(self):
         record_id = self.get_selected_row_id()
@@ -356,6 +451,17 @@ class ProtocolInfoDialog(QDialog):
             return
         create_xml(self.conn, row[0])
         QMessageBox.information(self, "Успех", "XML-файл успешно создан.")
+
+    def generate_xml_for_selected_protocols(self):
+        protocols = self.get_selected_protocol_numbers()
+        if not protocols:
+            QMessageBox.warning(self, "Ошибка", "Выделите хотя бы один протокол (можно удерживая Ctrl).")
+            return
+        try:
+            create_xml_for_protocols(self.conn, protocols)
+            QMessageBox.information(self, "Успех", f"XML для выбранных протоколов ({len(protocols)}) успешно создан.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
 
     def delete_selected_entry(self):
         record_id = self.get_selected_row_id()
@@ -385,10 +491,11 @@ class ProtocolInfoDialog(QDialog):
 
     def open_context_menu(self, position):
         menu = QMenu()
-        menu.addAction("Сформировать XML", self.generate_xml_for_selected)
+        menu.addAction("Сформировать XML (по записи)", self.generate_xml_for_selected)
+        menu.addAction("Создать XML по выбранным протоколам", self.generate_xml_for_selected_protocols)
         menu.addAction("Удалить запись", self.delete_selected_entry)
         menu.addAction("Просмотр и изменение", self.show_details)
-        menu.exec_(self.table.viewport().mapToGlobal(position))
+        menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
 
 def get_user_data_from_db(conn, surname, name, patronymic):
@@ -423,6 +530,44 @@ def suggest_autofill_data(parent, conn, surname, name, patronymic, snils_edit, p
                 position_edit.setText(position)
 
 
+def _emit_xml_records_from_rows(root, rows):
+    for row in rows:
+        record = ET.SubElement(root, "RegistryRecord")
+        
+        worker = ET.SubElement(record, "Worker")
+        ET.SubElement(worker, "LastName").text = row[1] or ""
+        ET.SubElement(worker, "FirstName").text = row[2] or ""
+        ET.SubElement(worker, "MiddleName").text = row[3] or ""
+        ET.SubElement(worker, "Snils").text = row[4] or ""
+        ET.SubElement(worker, "IsForeignSnils").text = "true" if row[5] == 1 else "false"
+        ET.SubElement(worker, "ForeignSnils").text = row[6] or ""
+        ET.SubElement(worker, "Citizenship").text = row[7] or ""
+        ET.SubElement(worker, "Position").text = row[8] or ""
+        ET.SubElement(worker, "EmployerInn").text = row[11] or ''
+        ET.SubElement(worker, "EmployerTitle").text = row[12] or ''
+
+        organization = ET.SubElement(record, "Organization")
+        ET.SubElement(organization, "Inn").text = row[9] or ""  
+        ET.SubElement(organization, "Title").text = row[10] or ""  
+
+        test = ET.SubElement(record, "Test")
+        test.set("isPassed", "true" if row[14] == 1 else "false")
+        test.set("learnProgramId", str(row[13]))
+        
+        exam_date_db = row[16]
+        try:
+            exam_date_formatted = datetime.strptime(exam_date_db, '%d.%m.%Y').strftime('%Y-%m-%d')
+        except ValueError:
+            raise ValueError(f"Неверный формат даты в базе данных для записи: {row[0]}. Ожидаемый формат: %d.%m.%Y")
+
+        ET.SubElement(test, "Date").text = exam_date_formatted
+        ET.SubElement(test, "ProtocolNumber").text = row[15] or ""
+        try:
+            ET.SubElement(test, "LearnProgramTitle").text = program_mapping[row[13]]
+        except KeyError:
+            ET.SubElement(test, "LearnProgramTitle").text = ""
+
+
 def create_xml(conn, target_protocol_number=None):
     try:
         filename = f"{target_protocol_number or 'all'}_{datetime.now().strftime('%d%m%Y')}.xml"
@@ -436,41 +581,7 @@ def create_xml(conn, target_protocol_number=None):
                 cursor.execute("SELECT * FROM users")
             rows = cursor.fetchall()
 
-            for row in rows:
-                record = ET.SubElement(root, "RegistryRecord")
-                
-                worker = ET.SubElement(record, "Worker")
-                ET.SubElement(worker, "LastName").text = row[1] or ""
-                ET.SubElement(worker, "FirstName").text = row[2] or ""
-                ET.SubElement(worker, "MiddleName").text = row[3] or ""
-                ET.SubElement(worker, "Snils").text = row[4] or ""
-                ET.SubElement(worker, "IsForeignSnils").text = "true" if row[5] == 1 else "false"
-                ET.SubElement(worker, "ForeignSnils").text = row[6] or ""
-                ET.SubElement(worker, "Citizenship").text = row[7] or ""
-                ET.SubElement(worker, "Position").text = row[8] or ""
-                ET.SubElement(worker, "EmployerInn").text = row[11] or ''
-                ET.SubElement(worker, "EmployerTitle").text = row[12] or ''
-
-                organization = ET.SubElement(record, "Organization")
-                ET.SubElement(organization, "Inn").text = row[9] or ""  
-                ET.SubElement(organization, "Title").text = row[10] or ""  
-
-                test = ET.SubElement(record, "Test")
-                test.set("isPassed", "true" if row[14] == 1 else "false")
-                test.set("learnProgramId", str(row[13]))
-                
-                exam_date_db = row[16]
-                try:
-                    exam_date_formatted = datetime.strptime(exam_date_db, '%d.%m.%Y').strftime('%Y-%m-%d')
-                except ValueError:
-                    raise ValueError(f"Неверный формат даты в базе данных для записи: {row[0]}. Ожидаемый формат: %d.%m.%Y")
-
-                ET.SubElement(test, "Date").text = exam_date_formatted
-                ET.SubElement(test, "ProtocolNumber").text = row[15] or ""
-                try:
-                    ET.SubElement(test, "LearnProgramTitle").text = program_mapping[row[13]]
-                except KeyError:
-                    ET.SubElement(test, "LearnProgramTitle").text = ""
+            _emit_xml_records_from_rows(root, rows)
 
         tree = ET.ElementTree(root)
         tree.write(filename, encoding="utf-8", xml_declaration=True)
@@ -480,6 +591,50 @@ def create_xml(conn, target_protocol_number=None):
         QMessageBox.critical(None, "Ошибка базы данных", str(e))
     except Exception as e:
         QMessageBox.critical(None, "Непредвиденная ошибка", str(e))
+
+
+def create_xml_for_protocols(conn, protocols):
+    """
+    Создает единый XML-файл для списка выбранных протоколов.
+    Имя файла: "<proto1,proto2,...>_<ddMMyyyy>.xml", например "581,565,454_02092025.xml"
+    """
+    if not protocols:
+        raise ValueError("Список протоколов пуст.")
+
+    # Имя файла: номера через запятую (без пробелов) + дата
+    date_str = datetime.now().strftime('%d%m%Y')
+    proto_part = ",".join(protocols)
+    filename = f"{proto_part}_{date_str}.xml"
+
+    try:
+        root = ET.Element("RegistrySet")
+
+        placeholders = ",".join(["?"] * len(protocols))
+        query = f"""
+            SELECT * FROM users 
+            WHERE protocol_number IN ({placeholders}) 
+            ORDER BY protocol_number, surname, name
+        """
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute(query, protocols)
+            rows = cursor.fetchall()
+            if not rows:
+                raise ValueError("В базе данных нет записей для выбранных протоколов.")
+
+            _emit_xml_records_from_rows(root, rows)
+
+        tree = ET.ElementTree(root)
+        tree.write(filename, encoding="utf-8", xml_declaration=True)
+    except ValueError as e:
+        QMessageBox.critical(None, "Ошибка", str(e))
+        raise
+    except sqlite3.Error as e:
+        QMessageBox.critical(None, "Ошибка базы данных", str(e))
+        raise
+    except Exception as e:
+        QMessageBox.critical(None, "Непредвиденная ошибка", str(e))
+        raise
 
 
 class MainWindow(QMainWindow):
@@ -498,7 +653,6 @@ class MainWindow(QMainWindow):
         self.main_layout = QGridLayout()
         central_widget.setLayout(self.main_layout)
 
-        # Метки и поля ввода
         labels_text = [
             "Фамилия:", "Имя:", "Отчество:", "СНИЛС:", "Профессия:",
             "ИНН организации:", "Название организации:",
@@ -519,21 +673,28 @@ class MainWindow(QMainWindow):
             self.employer_org_inn_entry, self.employer_org_title_entry
         ) = self.entries
 
-        self.org_inn_entry.setText("1234567890")
-        self.org_title_entry.setText("АО \"Аттестант\"")
-        self.employer_org_inn_entry.setText("0000000000")
-        self.employer_org_title_entry.setText("АО \"Работодатель\"")
+        # Установка значений по умолчанию
+        self.org_inn_entry.setText("введите ИНН аттестовывающей организации")
+        self.org_title_entry.setText("введите название аттестовывающей организации")
+        self.employer_org_inn_entry.setText("введите ИНН работодателя")
+        self.employer_org_title_entry.setText("введите название работодателя")
 
-        # Привязка Enter для перехода между полями (кроме последнего)
         for i in range(len(self.entries) - 1):
             self.entries[i].returnPressed.connect(self._make_focus_next_func(i))
 
-        # Кнопка выбора профессии
         self.position_button = QPushButton("Выбрать из списка")
         self.position_button.clicked.connect(self.select_position)
         self.main_layout.addWidget(self.position_button, 4, 2)
 
-        # Учебные программы
+        # Кнопки выбора организаций
+        self.org_select_button = QPushButton("Выбрать организацию")
+        self.org_select_button.clicked.connect(self.select_organization)
+        self.main_layout.addWidget(self.org_select_button, 6, 2)
+
+        self.employer_select_button = QPushButton("Выбрать работодателя")
+        self.employer_select_button.clicked.connect(self.select_employer)
+        self.main_layout.addWidget(self.employer_select_button, 8, 2)
+
         learn_program_label = QLabel("Учебные программы:")
         self.main_layout.addWidget(learn_program_label, 9, 0, 1, 2, Qt.AlignLeft)
 
@@ -550,19 +711,16 @@ class MainWindow(QMainWindow):
         self.selected_count_label = QLabel("Выбрано: 0")
         self.main_layout.addWidget(self.selected_count_label, 10, 2, Qt.AlignTop)
 
-        # Чекбокс сдано
         self.is_passed_checkbox = QCheckBox("Сдано")
         self.is_passed_checkbox.setChecked(True)
         self.main_layout.addWidget(self.is_passed_checkbox, 11, 0, 1, 2, Qt.AlignLeft)
 
-        # Номер протокола
         protocol_number_label = QLabel("Номер протокола:")
         self.protocol_number_entry = QLineEdit()
         self.protocol_number_entry.returnPressed.connect(lambda: self.exam_date_entry.setFocus())
         self.main_layout.addWidget(protocol_number_label, 12, 0)
         self.main_layout.addWidget(self.protocol_number_entry, 12, 1)
 
-        # Дата аттестации + кнопка календаря
         exam_date_label = QLabel("Дата аттестации:")
         self.exam_date_entry = QLineEdit()
         self.main_layout.addWidget(exam_date_label, 13, 0)
@@ -572,17 +730,14 @@ class MainWindow(QMainWindow):
         self.calendar_button.clicked.connect(self.show_calendar)
         self.main_layout.addWidget(self.calendar_button, 13, 2)
 
-        # Кнопка отправки
         self.submit_button = QPushButton("Отправить в БД")
         self.submit_button.clicked.connect(self.submit_data)
         self.main_layout.addWidget(self.submit_button, 14, 1, Qt.AlignRight)
 
-        # Информация о протоколах
         self.protocol_info_button = QPushButton("Информация о протоколах")
         self.protocol_info_button.clicked.connect(self.show_protocol_info)
         self.main_layout.addWidget(self.protocol_info_button, 14, 2, Qt.AlignLeft)
 
-        # Чекбокс для иностранного СНИЛС + блок с вводом данных для иностранцев
         self.isForeignSnils_checkbox = QCheckBox("Не гражданин РФ")
         self.isForeignSnils_checkbox.stateChanged.connect(self.toggle_foreign_info)
         self.main_layout.addWidget(self.isForeignSnils_checkbox, 15, 0, 1, 2)
@@ -604,28 +759,25 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.foreign_info_widget, 16, 0, 1, 3)
         self.foreign_info_widget.hide()
 
-        # Поле для ввода полного ФИО через пробел
         full_name_label = QLabel("ФИО (введите через пробел):")
         self.full_name_entry = QLineEdit()
         self.full_name_entry.returnPressed.connect(self.parse_full_name)
         self.main_layout.addWidget(full_name_label, 20, 0)
         self.main_layout.addWidget(self.full_name_entry, 20, 1)
 
-        # Кнопка инструкции
         self.manual_button = QPushButton("Инструкция")
         self.manual_button.clicked.connect(self.show_manual)
         self.main_layout.addWidget(self.manual_button, 20, 2)
 
-        # Кнопки очистки
+        # Перемещаем кнопки очистки ниже
         self.clear_all_button = QPushButton("Очистить всё")
         self.clear_all_button.clicked.connect(self.clear_all_entries)
-        self.main_layout.addWidget(self.clear_all_button, 8, 2)
+        self.main_layout.addWidget(self.clear_all_button, 17, 2)
 
         self.clear_partial_button = QPushButton("Очистить (ФИО, СНИЛС)")
         self.clear_partial_button.clicked.connect(self.clear_partial_entries)
         self.main_layout.addWidget(self.clear_partial_button, 3, 2)
 
-        # Поле и кнопка для создания XML по номеру протокола
         protocol_xml_label = QLabel("Номер протокола для XML:")
         self.protocol_number_for_xml_entry = QLineEdit()
         self.xml_button_filtered = QPushButton("Создать XML (для протокола)")
@@ -640,15 +792,12 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.xml_button_filtered, row_base, 2)
         self.main_layout.addWidget(self.xml_button_all, row_base + 1, 2)
 
-        # Фокусные переходы на Enter: дата и кнопка
         self.exam_date_entry.returnPressed.connect(lambda: self.submit_button.setFocus())
         self.submit_button.setAutoDefault(True)
         self.submit_button.pressed.connect(self.submit_data)
 
-        # Автозаполнение по ФИО при потере фокуса Отчества
         self.patronymic_entry.editingFinished.connect(self.try_autocomplete_snils_and_position)
 
-        # Навигация стрелками внутри форм
         for edit in self.entries:
             edit.keyPressEvent = self._make_arrow_navigation(edit.keyPressEvent, edit)
 
@@ -675,11 +824,9 @@ class MainWindow(QMainWindow):
                         items[0].setFocus()
                         items[0].setCursorPosition(len(items[0].text()))
                 return
-            # Влево / вправо - перемещаем курсор если возможно
             if key == Qt.Key_Left:
                 cursor_pos = widget.cursorPosition()
                 if cursor_pos > 0:
-                    # Позволяем обрабатывать
                     original_handler(event)
                     return
             if key == Qt.Key_Right:
@@ -687,7 +834,6 @@ class MainWindow(QMainWindow):
                 if cursor_pos < len(widget.text()):
                     original_handler(event)
                     return
-            # Остальные обработчики по умолчанию
             original_handler(event)
         return new_handler
 
@@ -712,6 +858,18 @@ class MainWindow(QMainWindow):
         if pos:
             self.position_entry.setText(pos)
 
+    def select_organization(self):
+        inn, title = OrganizationSelectorDialog.get_organization(self)
+        if inn and title:
+            self.org_inn_entry.setText(inn)
+            self.org_title_entry.setText(title)
+
+    def select_employer(self):
+        inn, title = OrganizationSelectorDialog.get_organization(self)
+        if inn and title:
+            self.employer_org_inn_entry.setText(inn)
+            self.employer_org_title_entry.setText(title)
+
     def show_manual(self):
         dialog = InstructionDialog(self)
         dialog.exec_()
@@ -727,16 +885,15 @@ class MainWindow(QMainWindow):
         self.selected_count_label.setText(f"Выбрано: {count}")
 
     def clear_all_entries(self):
-        # Очищаем ВСЕ поля, кроме указанных четырёх
         self.surname_entry.clear()
         self.name_entry.clear()
         self.patronymic_entry.clear()
         self.snils_entry.clear()
         self.position_entry.clear()
-        # НЕ ОЧИЩАЕМ self.org_inn_entry
-        # НЕ ОЧИЩАЕМ self.org_title_entry
-        # НЕ ОЧИЩАЕМ self.employer_org_inn_entry
-        # НЕ ОЧИЩАЕМ self.employer_org_title_entry
+        self.org_inn_entry.clear()
+        self.org_title_entry.clear()
+        self.employer_org_inn_entry.clear()
+        self.employer_org_title_entry.clear()
         self.learn_program_list.clearSelection()
         self.is_passed_checkbox.setChecked(True)
         self.protocol_number_entry.clear()
@@ -744,6 +901,11 @@ class MainWindow(QMainWindow):
         self.isForeignSnils_checkbox.setChecked(False)
         self.foreignSnils_entry.clear()
         self.citizenship_entry.clear()
+        # Восстанавливаем значения по умолчанию
+        self.org_inn_entry.setText("введите ИНН аттестовывающей организации")
+        self.org_title_entry.setText("введите название аттестовывающей организации")
+        self.employer_org_inn_entry.setText("введите ИНН работодателя")
+        self.employer_org_title_entry.setText("введите название работодателя")
         self.update_selected_count()
 
     def clear_partial_entries(self):
